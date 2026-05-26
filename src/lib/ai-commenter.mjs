@@ -118,9 +118,21 @@ async function callOpenRouter({ apiKey, model, prompt, recentComments = [] }) {
       temperature: PROVIDER_DEFAULTS.openrouter.temperature,
     }),
   });
-  if (!res.ok) throw new Error(`OpenRouter HTTP ${res.status}: ${(await res.text()).slice(0, 200)}`);
+  
+  if (!res.ok) {
+    const errorText = await res.text();
+    console.error(`[callOpenRouter] HTTP ${res.status}: ${errorText.slice(0, 300)}`);
+    throw new Error(`OpenRouter HTTP ${res.status}: ${errorText.slice(0, 200)}`);
+  }
+  
   const data = await res.json();
-  return (data?.choices?.[0]?.message?.content || '').trim();
+  console.log(`[callOpenRouter] Full response: ${JSON.stringify(data).slice(0, 500)}`);
+  
+  const content = (data?.choices?.[0]?.message?.content || '').trim();
+  if (!content) {
+    console.error('[callOpenRouter] Empty content! Response:', JSON.stringify(data).slice(0, 500));
+  }
+  return content;
 }
 
 async function callAnthropic({ apiKey, model, prompt }) {
@@ -234,17 +246,26 @@ export async function generateComment({ tweetText, lang, style, ai }) {
     else throw new Error(`Unknown AI provider: ${provider}`);
   } catch (error) {
     // On failure, wait 1 hour then retry once
-    console.error(`AI call failed: ${error.message}. Waiting 1 hour before retry...`);
+    console.error(`[generateComment] AI call failed: ${error.message}. Waiting 1 hour before retry...`);
     await sleep(60 * 60 * 1000); // 1 hour = 3600000 ms
     
-    if (provider === 'deepseek') text = await callDeepseek({ apiKey: ai.apiKey, model: ai.model, prompt });
-    else if (provider === 'openai') text = await callOpenAI({ apiKey: ai.apiKey, model: ai.model, prompt, recentComments });
-    else if (provider === 'openrouter') text = await callOpenRouter({ apiKey: ai.apiKey, model: ai.model, prompt, recentComments });
-    else if (provider === 'anthropic') text = await callAnthropic({ apiKey: ai.apiKey, model: ai.model, prompt });
-    else throw new Error(`Unknown AI provider: ${provider}`);
+    try {
+      if (provider === 'deepseek') text = await callDeepseek({ apiKey: ai.apiKey, model: ai.model, prompt });
+      else if (provider === 'openai') text = await callOpenAI({ apiKey: ai.apiKey, model: ai.model, prompt, recentComments });
+      else if (provider === 'openrouter') text = await callOpenRouter({ apiKey: ai.apiKey, model: ai.model, prompt, recentComments });
+      else if (provider === 'anthropic') text = await callAnthropic({ apiKey: ai.apiKey, model: ai.model, prompt });
+      else throw new Error(`Unknown AI provider: ${provider}`);
+    } catch (retryError) {
+      console.error(`[generateComment] Retry also failed: ${retryError.message}`);
+      throw retryError;
+    }
   }
 
-  if (!text) throw new Error('AI returned empty comment');
+  if (!text) {
+    console.error('[generateComment] AI returned empty comment after retry');
+    throw new Error('AI returned empty comment');
+  }
+  
   // Strip surrounding quotes if model added them
   const cleanedText = text.replace(/^["'`]+|["'`]+$/g, '').replace(/—/g, '').trim();
   
