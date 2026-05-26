@@ -8,7 +8,6 @@ import { detectLanguage } from '../lib/language.mjs';
 import { filterTweetsBatch, generateComment } from '../lib/ai-commenter.mjs';
 import { alreadyCommented, markCommented, tryReserve, alreadyFiltered, getFilterResult, markFiltered, clearOldFilteredTweets } from '../lib/store.mjs';
 import { waitForSlot, postSleep, markPostInBatch } from '../lib/rate-limiter.mjs';
-import { sendAlert } from '../lib/telegram.mjs';
 
 // ===== TOGGLE FILTER MODE HERE =====
 const ENABLE_AI_FILTER = false; // Set to true to enable AI filtering, false to accept all tweets
@@ -31,14 +30,14 @@ async function applyAIFilter(pool, cfg, log) {
       if (alreadyFiltered(t.id)) {
         const result = getFilterResult(t.id);
         cachedResults[t.id] = result;
-        log(`[mode-A] using cached filter for ${t.id} (${result ? 'pass' : 'fail'})`);
+        log(`[list-comment] using cached filter for ${t.id} (${result ? 'pass' : 'fail'})`);
       } else {
         tweetsToFilter.push(t);
       }
     }
     
     const cachedCount = Object.keys(cachedResults).length;
-    log(`[mode-A] ${cachedCount} tweets already filtered, ${tweetsToFilter.length} need filtering`);
+    log(`[list-comment] ${cachedCount} tweets already filtered, ${tweetsToFilter.length} need filtering`);
     
     // Batch filter only new tweets
     let newResults = {};
@@ -59,7 +58,7 @@ async function applyAIFilter(pool, cfg, log) {
     
     const passCount = Object.values(mergedResults).filter(v => v === true).length;
     const skipCount = pool.length - passCount;
-    log(`[mode-A] batch filter: ${pool.length} → ${passCount} tweets (${skipCount} skipped)`);
+    log(`[list-comment] batch filter: ${pool.length} → ${passCount} tweets (${skipCount} skipped)`);
 
     // Write filtered tweets to file
     try {
@@ -72,21 +71,21 @@ async function applyAIFilter(pool, cfg, log) {
           text: t.fullText,
         }));
       await writeFile('data/fetch-tweet-filter.txt', JSON.stringify(filteredTweetsLog, null, 2));
-      log(`[mode-A] wrote ${filteredTweetsLog.length} filtered tweets to data/fetch-tweet-filter.txt`);
+      log(`[list-comment] wrote ${filteredTweetsLog.length} filtered tweets to data/fetch-tweet-filter.txt`);
     } catch (e) {
-      log(`[mode-A] failed to write fetch-tweet-filter.txt: ${e.message}`);
+      log(`[list-comment] failed to write fetch-tweet-filter.txt: ${e.message}`);
     }
     
     // If no tweets passed filter, wait 1 hour
     if (passCount === 0) {
       const waitMs = 60 * 60 * 1000; // 1 hour
-      log(`[mode-A] no tweets passed filter, waiting 1 hour before next run...`);
+      log(`[list-comment] no tweets passed filter, waiting 1 hour before next run...`);
       await new Promise(resolve => setTimeout(resolve, waitMs));
     }
     
     return mergedResults;
   } catch (e) {
-    log(`[mode-A] batch filter failed: ${e.message}`);
+    log(`[list-comment] batch filter failed: ${e.message}`);
     return filterResults;
   }
 }
@@ -99,21 +98,21 @@ function acceptAllTweets(pool, log) {
   for (const t of pool) {
     filterResults[t.id] = true; // Accept all tweets
   }
-  log(`[mode-A] FILTER DISABLED: accepting all ${pool.length} tweets`);
+  log(`[list-comment] FILTER DISABLED: accepting all ${pool.length} tweets`);
   return filterResults;
 }
 
 export async function runListMode(cfg, log) {
-  const listIds = cfg.modeA?.listIds || [];
+  const listIds = cfg.listIds || [];
   if (listIds.length === 0) {
-    log('[mode-A] no list IDs configured; skipping');
+    log('[list-comment] no list IDs configured; skipping');
     return;
   }
 
   // Clean up old filter data (> 6 hours old)
   const deletedCount = clearOldFilteredTweets(6);
   if (deletedCount > 0) {
-    log(`[mode-A] cleaned up ${deletedCount} old filtered tweets from DB`);
+    log(`[list-comment] cleaned up ${deletedCount} old filtered tweets from DB`);
   }
 
   const pool = [];
@@ -129,11 +128,10 @@ export async function runListMode(cfg, log) {
         seen.add(t.id);
         pool.push(t);
       }
-      log(`[mode-A] list ${id}: pool size now ${pool.length}`);
+      log(`[list-comment] list ${id}: pool size now ${pool.length}`);
     } catch (e) {
-      log(`[mode-A] list ${id} fetch failed: ${e.message}`);
+      log(`[list-comment] list ${id} fetch failed: ${e.message}`);
       if (/401|403/.test(e.message)) {
-        await sendAlert(cfg.telegram?.botToken, cfg.telegram?.chatId, `[twitter-comment-pack] Session expired — re-export cookies`);
         throw e;
       }
     }
@@ -150,9 +148,9 @@ export async function runListMode(cfg, log) {
       text: t.fullText,
     }));
     await writeFile('data/fetch-tweet.txt', JSON.stringify(fetchedTweetsLog, null, 2));
-    log(`[mode-A] wrote ${pool.length} fetched tweets to data/fetch-tweet.txt`);
+    log(`[list-comment] wrote ${pool.length} fetched tweets to data/fetch-tweet.txt`);
   } catch (e) {
-    log(`[mode-A] failed to write fetch-tweet.txt: ${e.message}`);
+    log(`[list-comment] failed to write fetch-tweet.txt: ${e.message}`);
   }
 
   // Apply filter (AI or accept-all based on toggle)
@@ -163,41 +161,38 @@ export async function runListMode(cfg, log) {
   for (const t of pool) {
     // Check if tweet passed filter - skip if NOT explicitly marked true
     if (filterResults[t.id] !== true) {
-      log(`[mode-A] skip filtered ${t.id} @${t.author} (not worth engaging)`);
+      log(`[list-comment] skip filtered ${t.id} @${t.author} (not worth engaging)`);
       continue;
     }
     
     await waitForSlot(cfg, log);
-    const langSetting = cfg.modeA?.language || 'auto';
-    const lang = langSetting === 'auto' ? detectLanguage(t.fullText) : langSetting;
+    const lang = detectLanguage(t.fullText);
 
     let comment;
     try {
       comment = await generateComment({
         tweetText: t.fullText,
         lang,
-        style: cfg.modeA?.stylePrompt || '',
         ai: cfg.ai,
       });
     } catch (e) {
-      log(`[mode-A] AI fail for ${t.id}: ${e.message}`);
+      log(`[list-comment] AI fail for ${t.id}: ${e.message}`);
       continue;
     }
 
     try {
       // reserve atomically to avoid race where two workers post same tweet
       if (!tryReserve(t.id, t.author)) {
-        log(`[mode-A] skip reserved ${t.id} @${t.author}`);
+        log(`[list-comment] skip reserved ${t.id} @${t.author}`);
         continue;
       }
       await postTweet(comment, cfg.cookiesFile, { replyToId: t.id });
       markCommented(t.id, t.author);
       markPostInBatch();
-      log(`[mode-A] OK reply ${t.id} @${t.author} lang=${lang} "${comment.slice(0, 60)}..."`);
+      log(`[list-comment] OK reply ${t.id} @${t.author} lang=${lang} "${comment.slice(0, 60)}..."`);
     } catch (e) {
-      log(`[mode-A] post fail ${t.id}: ${e.message}`);
+      log(`[list-comment] post fail ${t.id}: ${e.message}`);
       if (/RATE_LIMITED/.test(e.message)) {
-        await sendAlert(cfg.telegram?.botToken, cfg.telegram?.chatId, `[twitter-comment-pack] Rate limited (${e.message})`);
         return;
       }
       continue;

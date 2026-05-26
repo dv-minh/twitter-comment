@@ -1,15 +1,12 @@
 /**
  * Twitter Comment Pack — main entrypoint.
+ * Runs List Comment mode (Mode A) only.
  */
 import fs from 'fs';
 import path from 'path';
 import { loadConfig } from './config.mjs';
 import { initStore } from './lib/store.mjs';
-import { sendAlert } from './lib/telegram.mjs';
 import { runListMode } from './modes/list-comment.mjs';
-import { runAmplifyMode } from './modes/amplify.mjs';
-import { runHybridMode } from './modes/hybrid.mjs';
-import { runWarmup } from './warmup.mjs';
 
 const DEBUG = process.argv.includes('--debug');
 const RUN_LOG = 'data/run.log';
@@ -33,29 +30,15 @@ async function main() {
   const rateStr = typeof cfg.commentsPerHour === 'object'
     ? `${cfg.commentsPerHour.min}-${cfg.commentsPerHour.max}/hr (random)`
     : `${cfg.commentsPerHour}/hr`;
-  log(`Mode: ${cfg.mode} | AI: ${cfg.ai.provider} | Rate: ${rateStr}`);
+  log(`Mode: List Comment | AI: ${cfg.ai.provider} | Rate: ${rateStr}`);
 
-  await sendAlert(cfg.telegram?.botToken, cfg.telegram?.chatId,
-    `[twitter-comment-pack] started in mode ${cfg.mode}`);
-
-  // Schedule background session check every 2h, plus once on startup
-  // const runHealth = async () => {
-  //   try { await runWarmup(cfg, DEBUG); } catch {}
-  // };
-  // runHealth();
-  // setInterval(runHealth, 2 * 60 * 60 * 1000);
-
-  // Main mode loop
+  // Main loop - always run list comment mode
   while (true) {
     try {
-      if (cfg.mode === 'A') await runListMode(cfg, log);
-      else if (cfg.mode === 'B') await runAmplifyMode(cfg, log);
-      else if (cfg.mode === 'C') await runHybridMode(cfg, log);
+      await runListMode(cfg, log);
     } catch (e) {
       log(`Loop error: ${e.message}`);
       if (/SESSION_EXPIRED|401|403/.test(e.message)) {
-        await sendAlert(cfg.telegram?.botToken, cfg.telegram?.chatId,
-          `[twitter-comment-pack] STOPPED: ${e.message}`);
         process.exit(1);
       }
     }
@@ -68,9 +51,5 @@ async function main() {
 
 main().catch(async (e) => {
   console.error('FATAL:', e);
-  try {
-    const cfg = loadConfig();
-    await sendAlert(cfg.telegram?.botToken, cfg.telegram?.chatId, `[twitter-comment-pack] FATAL: ${e.message}`);
-  } catch {}
   process.exit(1);
 });

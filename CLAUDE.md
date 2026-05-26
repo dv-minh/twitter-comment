@@ -16,21 +16,15 @@ Two options:
 
 **Option B (you write config directly)**: If the user has already pasted answers in chat, you can write `data/config.json` yourself using the schema in `config.example.json`. You will also need to write `data/cookies.json` in the format `{ "cookies": [{name, value, domain, path}, ...] }`. Required cookies: at minimum `auth_token` and `ct0`.
 
-The wizard asks 5 questions:
+The wizard asks 3 questions:
 
 1. **Twitter cookies** — accepts either Cookie-Editor JSON array OR `{auth_token, ct0}` object. Wizard normalizes to `data/cookies.json`. See `guides/01-get-cookies.md`.
 
-2. **Telegram bot token + chat ID** — optional. See `guides/02-get-telegram-token.md`.
+2. **Twitter list IDs** — comma-separated IDs of lists to crawl. See `guides/03-modes-explained.md`.
 
-3. **Mode** A / B / C:
-   - A = list comment. Sub-prompts: list IDs (comma-separated), language (`auto|en|ja|ko|zh`), style/persona free text.
-   - B = amplify. Sub-prompts: owner's @username, hashtags (default `#XAUUSD,#Gold,#Crypto,#Bitcoin`), optional cross-post list ID.
-   - C = both.
-   See `guides/03-modes-explained.md`.
+3. **Rate** — comments per hour (default 15). See `guides/04-rate-limits.md`.
 
-4. **Rate** — comments per hour (default 15). See `guides/04-rate-limits.md`.
-
-5. **AI provider** — `deepseek` (default) | `openai` | `anthropic`, plus API key and optional model override.
+Then: **AI provider** — `deepseek` (default) | `openai` | `openrouter` | `anthropic`, plus API key and optional model override.
 
 ## Step 3 — Install autostart (Windows only, optional)
 
@@ -44,9 +38,9 @@ The wizard asks 5 questions:
 
 When the user asks how to do something, point them to the right guide:
 - Cookies → `guides/01-get-cookies.md`
-- Telegram → `guides/02-get-telegram-token.md`
-- Mode choice → `guides/03-modes-explained.md`
+- List IDs & mode explanation → `guides/03-modes-explained.md`
 - Rate limits → `guides/04-rate-limits.md`
+
 
 ## Troubleshooting
 

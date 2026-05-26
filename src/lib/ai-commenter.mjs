@@ -53,7 +53,7 @@ function saveCommentToHistory(comment) {
   }
 }
 
-function buildPrompt({ tweetText, lang, style, recentComments = [] }) {
+function buildPrompt({ tweetText, lang, recentComments = [] }) {
   let historySection = '';
   if (recentComments && recentComments.length > 0) {
     const recentTexts = recentComments.map((c, i) => `${i + 1}. ${c.text}`).join('\n');
@@ -226,7 +226,7 @@ export async function filterTweetsBatch({ tweets, ai }) {
   }
 }
 
-export async function generateComment({ tweetText, lang, style, ai }) {
+export async function generateComment({ tweetText, lang, ai }) {
   if (isFollowBackRequest(tweetText)) {
     return followBackReply(lang);
   }
@@ -234,7 +234,7 @@ export async function generateComment({ tweetText, lang, style, ai }) {
   // Read recent comments for anti-repetition
   const recentComments = readRecentComments(10);
   
-  const prompt = buildPrompt({ tweetText, lang, style, recentComments });
+  const prompt = buildPrompt({ tweetText, lang, recentComments });
   const provider = (ai.provider || 'deepseek').toLowerCase();
   let text = '';
   

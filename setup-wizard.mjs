@@ -1,5 +1,6 @@
 /**
- * Interactive setup wizard. Asks 5 questions, writes data/config.json + data/cookies.json.
+ * Interactive setup wizard. Asks 3 questions, writes data/config.json + data/cookies.json.
+ * Simplified version: List Comment mode only, no Telegram, no stylePrompt.
  */
 import fs from 'fs';
 import path from 'path';
@@ -76,10 +77,10 @@ function normalizeCookies(raw) {
 
 (async function main() {
   console.log('\n=== Twitter Comment Pack — Setup Wizard ===\n');
-  console.log('You will be asked 5 short questions. See guides/ for help.\n');
+  console.log('You will be asked 3 short questions. See guides/ for help.\n');
 
   // Q1: cookies
-  console.log('--- Question 1/5: Twitter cookies ---');
+  console.log('--- Question 1/4: Twitter cookies ---');
   console.log('Use the "Cookie-Editor" extension on x.com → Export → JSON.');
   console.log('You can also paste {"auth_token": "...", "ct0": "..."} format.');
   const rawCookies = await askMultiline('Paste cookies JSON now:');
@@ -93,50 +94,25 @@ function normalizeCookies(raw) {
   fs.writeFileSync(COOKIES_PATH, JSON.stringify(cookieObj, null, 2));
   console.log(`Saved ${cookieObj.cookies.length} cookies to ${COOKIES_PATH}\n`);
 
-  // Q2: Telegram
-  console.log('--- Question 2/5: Telegram alerts ---');
-  console.log('See guides/02-get-telegram-token.md if you need help.');
-  const tgToken = await ask('Telegram bot token (or leave blank to skip): ');
-  let tgChatId = '';
-  if (tgToken) tgChatId = await ask('Telegram chat ID: ');
-
-  // Q3: Mode
-  console.log('\n--- Question 3/5: Mode ---');
-  console.log('  A = List comment (you give list IDs, bot comments per language/style)');
-  console.log('  B = Amplify (when you post, bot comments on hashtag tweets pointing back)');
-  console.log('  C = Hybrid (alternate A and B)');
-  console.log('  See guides/03-modes-explained.md for full details.');
-  let mode = '';
-  while (!['A', 'B', 'C'].includes(mode)) {
-    mode = (await ask('Choose mode (A/B/C) [A]: ')).toUpperCase() || 'A';
+  // Q2: List IDs
+  console.log('--- Question 2/3: Twitter list IDs ---');
+  console.log('Enter one or more list IDs (comma-separated).');
+  console.log('See guides/03-modes-explained.md for how to find list IDs.');
+  const ids = await ask('List IDs: ');
+  const listIds = ids.split(',').map((s) => s.trim()).filter(Boolean);
+  if (listIds.length === 0) {
+    console.error('ERROR: At least one list ID is required');
+    process.exit(1);
   }
 
-  const modeA = { listIds: [], language: 'auto', stylePrompt: '' };
-  const modeB = { ownerUsername: '', hashtags: ['#XAUUSD', '#Gold', '#Crypto', '#Bitcoin'], crossPostListId: '' };
-
-  if (mode === 'A' || mode === 'C') {
-    const ids = await ask('  List IDs (comma-separated): ');
-    modeA.listIds = ids.split(',').map((s) => s.trim()).filter(Boolean);
-    const lang = await ask('  Language (auto|en|ja|ko|zh) [auto]: ') || 'auto';
-    modeA.language = lang;
-    const style = await ask('  Style/persona prompt (free text, e.g. "trader chuyen nghiep, ngan gon duoi 200 ky tu"): ');
-    modeA.stylePrompt = style;
-  }
-  if (mode === 'B' || mode === 'C') {
-    modeB.ownerUsername = await ask('  Your Twitter @username (no @): ');
-    const tags = await ask('  Hashtags to scan (comma-separated) [#XAUUSD,#Gold,#Crypto,#Bitcoin]: ');
-    if (tags) modeB.hashtags = tags.split(',').map((s) => s.trim()).filter(Boolean);
-    modeB.crossPostListId = await ask('  Optional cross-post list ID (Enter to skip): ');
-  }
-
-  // Q4: rate
-  console.log('\n--- Question 4/5: Rate ---');
+  // Q3: rate
+  console.log('\n--- Question 3/3: Rate limit ---');
   console.log('See guides/04-rate-limits.md. Safe: 10-20/hr. Aggressive: 20-30. >30 risky.');
   const rateRaw = await ask('Comments per hour [15]: ');
   const rate = parseInt(rateRaw, 10) || 15;
 
-  // Q5: AI
-  console.log('\n--- Question 5/5: AI provider ---');
+  // AI provider
+  console.log('\n--- AI Provider ---');
   console.log('Options: deepseek | openai | openrouter | anthropic');
   console.log('  deepseek: cheap, fast (default)');
   console.log('  openai: gpt-4o-mini, expensive');
@@ -149,10 +125,7 @@ function normalizeCookies(raw) {
 
   const cfg = {
     cookiesFile: 'data/cookies.json',
-    telegram: { botToken: tgToken, chatId: tgChatId },
-    mode,
-    modeA,
-    modeB,
+    listIds,
     commentsPerHour: rate,
     delayMinMs: 60000,
     delayMaxMs: 240000,

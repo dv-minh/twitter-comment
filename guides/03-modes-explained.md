@@ -1,71 +1,78 @@
-# Ba chế độ A / B / C
+# List Comment Mode
 
-## Mode A — List comment
+## What does it do?
 
-**Bot làm gì**: định kỳ crawl các Twitter list bạn cấu hình, lấy mọi tweet mới chưa comment, dùng AI sinh comment phù hợp ngôn ngữ + style/persona bạn đặt, rồi reply.
+**Bot workflow**:
+1. Periodically crawl your configured Twitter lists
+2. Find new tweets that haven't been commented yet
+3. Generate contextual, human-like comments using AI
+4. Automatically reply to tweets in the detected language
 
-**Phù hợp cho**:
-- Build presence trong cộng đồng nhỏ (list crypto, list trader, list dev...)
-- Tăng engagement với account trong list
-- Học cách comment theo nhiều ngôn ngữ khác nhau
+## Best for
 
-**Cấu hình cần**:
-- `listIds`: ID của list (lấy từ URL list, vd `https://x.com/i/lists/1234567890` → `1234567890`)
-- `language`: `auto` (auto-detect mỗi tweet) hoặc cố định `en|ja|ko|zh`
-- `stylePrompt`: persona / style. Vd: `"trader chuyên nghiệp, ngắn gọn dưới 200 ký tự, không dùng emoji"`
+- Building presence in niche communities (crypto lists, trader lists, dev lists, etc.)
+- Increasing engagement within curated Twitter lists
+- Growing organically with filtered, relevant audience
+- Learning natural comment patterns across different languages
 
-**Ưu / nhược**:
-- (+) An toàn nhất, tweet trong list = đối tượng có chọn lọc
-- (+) Tự nhiên, không spam reach
-- (-) Tăng follower chậm hơn Mode B
+## Configuration
 
----
+When you run `npm run setup`, you'll be asked:
 
-## Mode B — Amplify own posts
+**List IDs** (comma-separated)
+- Find your list URL: `https://x.com/i/lists/1234567890`
+- Extract the ID: `1234567890`
+- You can add multiple lists: `1234567890, 2345678901`
 
-**Bot làm gì**: theo dõi tweet mới nhất của bạn (`ownerUsername`). Khi bạn vừa post, bot tìm các tweet hashtag hot (vd `#XAUUSD`, `#Crypto`) và comment vào đó kèm link đến tweet của bạn → kéo người xem về tweet bạn.
+Example config:
+```json
+{
+  "listIds": ["1234567890", "2345678901"],
+  "commentsPerHour": 15
+}
+```
 
-**CHỈ phù hợp cho** (đọc kỹ):
-- Video viral
-- Tutorial / hướng dẫn
-- Signal trade (gold, crypto, forex)
-- On-chain analysis
-- Technical analysis
+## How comments are generated
 
-**KHÔNG dùng cho**:
-- Spam tin tức (news repost)
-- Quảng cáo lung tung
-- Nội dung không có giá trị thật cho người đọc tweet hashtag
+- **Language detection**: Bot automatically detects the tweet language (English, Vietnamese, Japanese, Korean, Chinese)
+- **System prompt**: Hardcoded to match Crypto Twitter (CT) culture
+  - Natural, conversational tone (not blog post)
+  - Short replies (10-30 words)
+  - Uses CT slang naturally (gm, tbh, ngl, lfg, etc.)
+  - Matches the tweet's energy
+  - No hashtags, no URLs, no emojis (unless tweet needs it)
 
-→ Twitter sẽ restrict / shadowban nếu bạn dùng Mode B sai mục đích. Thuật toán nhận diện rất nhanh.
+## Pros & Cons
 
-**Cấu hình cần**:
-- `ownerUsername`: @username của BẠN (không có @)
-- `hashtags`: danh sách hashtag để scan (mặc định `#XAUUSD,#Gold,#Crypto,#Bitcoin`)
-- `crossPostListId`: optional, ID list để cross-post
+✅ **Pros**:
+- Safest approach — only engaging with pre-filtered lists
+- Organic growth without spam signals
+- Natural interaction pattern
+- Works in any language
 
-**Ưu / nhược**:
-- (+) Tăng reach nhanh khi tweet bạn có giá trị
-- (-) Rủi ro bị restrict nếu spam
-- (-) Tốn nhiều quota AI hơn (mỗi reply phải sinh)
-
----
-
-## Mode C — Hybrid
-
-**Bot làm gì**: luân phiên Mode A và Mode B mỗi cycle.
-
-**Phù hợp cho**: ai muốn cả 2 mục tiêu (engage list + amplify own posts).
-
-**Lưu ý**: tổng số comment vẫn bị giới hạn bởi `commentsPerHour`. Nên đặt rate cao hơn (vd 20-25/hr) để có chỗ cho cả 2 mode.
+❌ **Cons**:
+- Slower follower growth vs. broader engagement
+- Requires good list curation (quality lists = quality comments)
 
 ---
 
-## Tôi nên chọn cái nào?
+## Tips for best results
 
-| Mục tiêu | Chọn |
-|---|---|
-| Mới bắt đầu, sợ bị ban | A |
-| Có content viral / signal trade chất lượng | B |
-| Account đã warm-up, muốn full power | C |
-| Test thử bot trước khi commit | A với 1 list nhỏ + rate 5/hr |
+1. **Start with 1-2 high-quality lists**
+   - Better to comment well on small, relevant lists than spam large ones
+   - Quality > quantity always
+
+2. **Adjust comment rate based on list size**
+   - Small list (50-200 tweets/day): 5-10 comments/hour
+   - Medium list (200-500 tweets/day): 10-15 comments/hour
+   - Large list (500+ tweets/day): 15-20 comments/hour
+
+3. **Monitor and tweak**
+   - Check `data/run.log` for patterns
+   - If getting few replies → comments may be too generic
+   - If getting engagement → keep the AI prompt and rate working
+
+4. **Re-export cookies every 2-4 weeks**
+   - Twitter sessions expire
+   - When bot stops → re-run `npm run setup` (Q1 only)
+

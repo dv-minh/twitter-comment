@@ -20,7 +20,7 @@
 - **Hourly cap**: không bao giờ vượt `commentsPerHour` trong cửa sổ 60 phút trượt
 - **Random jitter**: giữa mỗi reply, sleep 60-240 giây ngẫu nhiên (tweak `delayMinMs` / `delayMaxMs` trong `data/config.json`)
 - **Cycle gap**: hết một vòng quét, sleep 5-10 phút trước khi quét lại
-- **Backoff**: nếu nhận `RATE_LIMITED 429/403`, dừng cycle hiện tại, gửi alert Telegram
+- **Backoff**: nếu nhận `RATE_LIMITED 429/403`, dừng cycle hiện tại, chờ 15-30 phút trước tiếp tục
 
 ## Khi nào tăng rate?
 

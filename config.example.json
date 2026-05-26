@@ -1,20 +1,6 @@
 {
   "cookiesFile": "data/cookies.json",
-  "telegram": {
-    "botToken": "123456:ABC...",
-    "chatId": "123456789"
-  },
-  "mode": "A",
-  "modeA": {
-    "listIds": ["1234567890"],
-    "language": "auto",
-    "stylePrompt": "trader chuyen nghiep, ngan gon duoi 200 ky tu, khong dung emoji"
-  },
-  "modeB": {
-    "ownerUsername": "your_handle_here",
-    "hashtags": ["#XAUUSD", "#Gold", "#Crypto", "#Bitcoin"],
-    "crossPostListId": ""
-  },
+  "listIds": ["1234567890"],
   "commentsPerHour": 15,
   "delayMinMs": 60000,
   "delayMaxMs": 240000,

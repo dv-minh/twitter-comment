@@ -4,76 +4,50 @@ Bot Twitter/X tự động bình luận, tối ưu cho trader, creator, và anal
 
 ---
 
-## 1. Cài đặt 5 phút bằng wizard
+## 1. Cài đặt 3 phút bằng wizard
 
-Toàn bộ cấu hình gói gọn trong **5 câu hỏi** chạy bằng `npm run setup`. Không cần sửa code, không cần đọc tài liệu kỹ thuật. Wizard sẽ:
+Toàn bộ cấu hình gói gọn trong **3 câu hỏi** chạy bằng `npm run setup`. Không cần sửa code, không cần đọc tài liệu kỹ thuật. Wizard sẽ:
 
 - **Validate cookies ngay tại chỗ**: nếu thiếu `auth_token` hoặc `ct0` → báo lỗi rõ ràng, hướng dẫn export lại.
-- **Test Telegram bot** (nếu cấu hình): gửi tin nhắn thử, xác nhận đúng `chat_id`.
-- **Test AI provider**: gọi 1 request thật để kiểm tra API key + chọn model phù hợp.
-- **Cho phép skip Telegram** nếu chưa muốn alert.
 - **Lưu file `data/config.json` + `data/cookies.json`** đã chuẩn hóa, gitignored sẵn.
 
-Nếu sau này muốn đổi cấu hình (vd thêm list mới, đổi rate, đổi style), chỉ cần chạy lại `npm run setup` — wizard giữ giá trị cũ làm default, chỉ override những gì bạn nhập mới.
+Nếu sau này muốn đổi cấu hình (vd thêm list mới, đổi rate), chỉ cần chạy lại `npm run setup` — wizard giữ giá trị cũ làm default, chỉ override những gì bạn nhập mới.
 
 ---
 
-## 2. Ba chế độ hoạt động
-
-### Mode A — List Comment (an toàn nhất)
+## 2. List Comment — chế độ duy nhất (an toàn & tự nhiên)
 
 Bot crawl các Twitter list bạn chỉ định, comment vào tweet mới chưa từng comment.
 
 - **Đa list**: nhập nhiều list ID phân cách bằng dấu phẩy, bot chia đều quota giữa các list theo round-robin.
-- **Auto-detect ngôn ngữ tweet**: phân biệt tiếng Anh / Nhật / Hàn / Trung qua Unicode range, comment đúng ngôn ngữ tweet gốc → tự nhiên, không bị flag spam.
-- **Có thể fix ngôn ngữ**: nếu chỉ muốn comment bằng 1 ngôn ngữ duy nhất (vd toàn EN), set `language: "en"`.
-- **Style/persona tự do**: nhập prompt mô tả bot nên nói thế nào, ví dụ:
-  - `"trader chuyên nghiệp, ngắn gọn dưới 200 ký tự, không emoji"`
-  - `"casual, friendly, hay dùng meme"`
-  - `"dùng tiếng Hàn formal, kết bằng câu hỏi"`
-- **Mỗi list 1 style** (nâng cao): có thể đặt style khác nhau cho từng list bằng cách edit `data/config.json` sau wizard.
+- **Auto-detect ngôn ngữ tweet**: phân biệt tiếng Anh / Nhật / Hàn / Trung / Việt qua Unicode, comment đúng ngôn ngữ tweet gốc → tự nhiên, không bị flag spam.
+- **System prompt hardcoded**: bot được tuning riêng cho Crypto Twitter (CT) culture
+  - Tone: natural, conversational (không blog post)
+  - Độ dài: 10–30 words, dưới 140 ký tự
+  - CT slang: gm, tbh, ngl, lfg, bags ready, lfg...
+  - Match tweet energy: bullish → hype, meme → funny, analysis → thoughtful
+  - NO hashtags, NO URLs, NO emojis (trừ khi cần thiết: 😭 💀 👀 🔥)
+  - NO @mentions, NO $tickers không có trong tweet gốc
 - **Dedup persistent**: SQLite lưu mọi tweet đã comment → restart bot không bao giờ comment trùng.
-
-### Mode B — Amplify Own Posts (tăng view 30k–80k/post)
-
-Khi bạn đăng tweet mới, bot tự động đi comment vào các tweet đang hot trong các hashtag liên quan, kèm link về tweet của bạn → kéo audience về.
-
-- **Auto-detect tweet mới của bạn**: poll timeline `@ownerUsername` mỗi 60 giây.
-- **Multi-hashtag scan**: mặc định `#XAUUSD #Gold #Crypto #Bitcoin`, có thể thay thế hoàn toàn bằng hashtag của bạn.
-- **Comment thông minh**: AI sinh comment liên quan đến tweet target + chèn link tự nhiên (không hard-sell).
-- **Window 4h**: chỉ comment vào tweet ≤4h tuổi → tweet đang được Twitter đẩy.
-- **Re-sweep mỗi 3 phút** cho đến khi bạn post tweet tiếp theo.
-- **Chuyển campaign tự động**: khi phát hiện tweet mới của bạn → ngừng amplify tweet cũ, chuyển sang tweet mới ngay.
-
-⚠️ **Cảnh báo bắt buộc đọc**: Mode B CHỈ phù hợp cho:
-- Video viral
-- Tutorial / hướng dẫn
-- Signal trade (gold, crypto, forex)
-- On-chain analysis
-- Technical analysis
-
-KHÔNG dùng cho spam tin tức, news repost, hay nội dung không có giá trị thực sự cho người đọc hashtag → Twitter sẽ restrict/shadowban nick bạn.
-
-### Mode C — Hybrid
-
-Luân phiên A và B mỗi cycle. Tổng comment vẫn bị giới hạn bởi `commentsPerHour` — khuyến nghị tăng rate (20–25/hr) để cả 2 mode có chỗ chạy.
+- **AI filtering optional**: nếu bạn bật ENABLE_AI_FILTER = true, bot sẽ filter tweet trước (chỉ comment vào tweet "xứng đáng"), giúp tăng chất lượng engagement.
 
 ---
 
 ## 3. Đa nhà cung cấp AI — bạn cầm chìa khóa
 
-Bot không bundle AI sẵn. Bạn cung cấp API key của 1 trong 3 provider, tùy ngân sách và chất lượng:
+Bot không bundle AI sẵn. Bạn cung cấp API key của 1 trong 4 provider, tùy ngân sách và chất lượng:
 
 | Provider | Model mặc định | Giá tham khảo (per 1M token) | Chất lượng |
 |---|---|---|---|
 | **DeepSeek** | `deepseek-chat` | ~$0.14 input / $0.28 output | Tốt cho chi phí, hỗ trợ tốt CJK |
 | **OpenAI** | `gpt-4o-mini` | ~$0.15 input / $0.60 output | Cân bằng |
+| **OpenRouter** | tùy chọn | tùy model | Linh hoạt, routing tự động |
 | **Anthropic** | `claude-haiku-4-5` | ~$1 input / $5 output | Tự nhiên nhất, đắt hơn |
 
 - **Override model bất kỳ lúc nào**: edit `data/config.json` field `ai.model`.
 - **Switch provider** chỉ cần chạy lại wizard.
 - **Không vendor lock-in**: prompt được build chuẩn hóa, mọi provider đều dùng cùng template.
-- **Gọi qua HTTP `fetch` trực tiếp**: không phụ thuộc SDK của provider → không bị break khi SDK update breaking change.
+- **Gọi qua HTTP `fetch` trực tiếp**: không phụ thuộc SDK của provider.
 
 ---
 
@@ -81,12 +55,10 @@ Bot không bundle AI sẵn. Bạn cung cấp API key của 1 trong 3 provider, t
 
 `commentsPerHour` không phải con số cứng. Bot:
 
-- **Jitter delay 30–90 giây** giữa các comment → trông như người thật, không phải burst.
-- **Backoff khi gặp 429/403**: pause 15–30 phút, gửi alert Telegram, tự động resume.
+- **Jitter delay 60–240 giây** giữa các comment (cấu hình qua `delayMinMs`, `delayMaxMs`) → trông như người thật, không phải burst.
 - **Soft fail vs hard fail**:
   - Soft fail (1 tweet bị block, network blip) → bỏ qua, tiếp tục.
-  - 5 soft fail liên tiếp → pause 2–4h, tránh bị Twitter flag.
-  - Hard fail (cookies expired, account verify) → STOP, alert Telegram khẩn.
+  - Hard fail (cookies expired, 401/403 auth) → STOP, log chi tiết.
 - **Khuyến nghị**:
   - 10–15/hr: an toàn, có thể chạy 24/7 lâu dài
   - 20–25/hr: aggressive, nên có account đã warm
@@ -94,20 +66,18 @@ Bot không bundle AI sẵn. Bạn cung cấp API key của 1 trong 3 provider, t
 
 ---
 
-## 5. Telegram alert (optional nhưng khuyến nghị)
+## 5. Logging chi tiết
 
-Khi cấu hình `telegram.botToken` + `telegram.chatId`, bot gửi:
+Mọi sự kiện được ghi vào `data/run.log`:
 
-- **Status report mỗi 4h**: số comment đã post, số tweet skip, lỗi nếu có.
-- **Alert tức thì** khi:
-  - Cookies hết hạn (SESSION_EXPIRED)
-  - Account bị restrict posting (NO_POST_BUTTON)
-  - AI provider trả 401 (sai API key) hoặc 429 (hết quota)
-  - Twitter rate-limit lâu hơn 30 phút
-  - Bot crash (cùng với stack trace)
-- **Throttled**: cùng 1 lỗi không spam — max 1 alert / loại lỗi / giờ.
+- **Khởi động**: config đã load, AI provider, rate limit
+- **Fetch tweet**: số tweet mới từ mỗi list, dedup
+- **Filter tweet** (nếu bật): bao nhiêu tweet pass, bao nhiêu skip
+- **Generate comment**: status, AI provider response time
+- **Post tweet**: success, error code, tweet ID replied
+- **Error detail**: exception stack trace, giúp debug nhanh
 
-Cấu hình bot Telegram: hướng dẫn ở `guides/02-get-telegram-token.md` (3 phút setup qua @BotFather).
+Xem live: `Get-Content data/run.log -Wait` (PowerShell) hoặc `tail -f data/run.log` (Linux/macOS).
 
 ---
 
@@ -118,6 +88,47 @@ Cấu hình bot Telegram: hướng dẫn ở `guides/02-get-telegram-token.md` (
 - `TwitterCommentPack_Startup` — chạy khi boot máy (ngay cả trước khi login)
 
 → Server reboot, bot tự dậy, không cần đăng nhập tay. Idempotent — chạy lại lệnh không tạo task trùng.
+
+Gỡ cài đặt:
+```cmd
+schtasks /Delete /TN TwitterCommentPack /F
+schtasks /Delete /TN TwitterCommentPack_Startup /F
+```
+
+---
+
+## 7. Anti-repetition trong reply
+
+Bot lưu 10 comment gần nhất vào `data/comment-history.json`. Khi generate comment mới:
+
+- Tránh dùng slang giống 3 comment gần nhất
+- Tránh mở đầu bằng cùng từ như recent replies
+- Vary sentence structure giữa replies
+- Áp dụng "relevance > variety" — reply phù hợp tweet hơn là kỳ lạ
+
+---
+
+## 8. Database SQLite persistent
+
+`data/store.db` lưu:
+
+- **Tweet đã comment**: `tweetId, author, timestamp`
+- **Tweet đã filter**: `tweetId, passed (true/false), timestamp`
+- **Session info**: cookies timestamp, quote status
+
+→ Restart bot lúc nào cũng safe. Không bao giờ double-comment.
+
+---
+
+## Troubleshooting
+
+| Problem | Giải pháp |
+|---|---|
+| `ct0 cookie not found` | Re-export cookies từ browser (Cookie-Editor), chạy `npm run setup` lại Q1 |
+| Bot không comment | Check `data/run.log` cho lỗi. Có thể tweets bị filter hoặc list IDs sai |
+| `429 / 403 RATE_LIMITED` | Giảm `commentsPerHour` hoặc đợi 30 phút. Bot tự resume |
+| `401 Unauthorized AI` | Kiểm tra API key, chạy lại `npm run setup` |
+| Comment chất lượng thấp | Prompt đã hardcoded tối ưu. Vấn đề có thể là list content chất lượng thấp hoặc AI model yếu → đổi sang model tốt hơn |
 
 Gỡ bằng:
 ```cmd
@@ -187,7 +198,7 @@ Repo có sẵn `CLAUDE.md` và `SETUP.md` viết theo format chuẩn cho:
 
 - **Update code**: `git pull && npm install` (postinstall tự re-apply patch).
 - **Cookies hết hạn** (~2–4 tuần): re-export bằng Cookie-Editor → `npm run setup` → chỉ làm Q1.
-- **Twitter break HTTP client** (rare, ~1 lần / 2-3 tháng): xem alert Telegram, update queryId hoặc re-patch theo hướng dẫn ở GitHub issues.
+- **Twitter break HTTP client** (rare, ~1 lần / 2-3 tháng): kiểm tra logs, update queryId hoặc re-patch theo hướng dẫn ở GitHub issues.
 - **Đổi style/persona/list/rate**: chạy lại `npm run setup`, bot tự reload lúc cycle tiếp theo.
 
 ---
@@ -202,7 +213,7 @@ Repo có sẵn `CLAUDE.md` và `SETUP.md` viết theo format chuẩn cho:
 | Xem log live? | `Get-Content data/run.log -Wait` |
 | Đổi config? | `npm run setup` (giữ default cũ) |
 | Cookies hết hạn? | Re-export → `npm run setup` Q1 |
-| Bot không comment? | Check `data/error.log` + alert Telegram |
+| Bot không comment? | Check `data/run.log` for errors |
 | Đổi AI provider? | `npm run setup` Q5 |
 | Gỡ autostart? | `schtasks /Delete /TN TwitterCommentPack /F` |
 | Uninstall hoàn toàn? | Xóa folder, xóa 2 scheduled task |
