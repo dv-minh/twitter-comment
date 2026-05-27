@@ -4,9 +4,20 @@
   "commentsPerHour": 15,
   "delayMinMs": 60000,
   "delayMaxMs": 240000,
-  "ai": {
-    "provider": "openrouter",
-    "apiKey": "sk-or-v1-...",
-    "model": "deepseek/deepseek-chat"
+  "llm": {
+    "comment": {
+      "provider": "openrouter",
+      "apiKey": "sk-or-v1-...",
+      "model": "deepseek/deepseek-chat"
+    },
+    "router": {
+      "provider": "openrouter",
+      "apiKey": "sk-or-v1-...",
+      "model": "openai/gpt-5.4-nano"
+    }
+  },
+  "debug": {
+    "reviewLogsEnabled": false,
+    "reviewLogsDir": "data/review-logs"
   }
 }

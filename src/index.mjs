@@ -30,7 +30,7 @@ async function main() {
   const rateStr = typeof cfg.commentsPerHour === 'object'
     ? `${cfg.commentsPerHour.min}-${cfg.commentsPerHour.max}/hr (random)`
     : `${cfg.commentsPerHour}/hr`;
-  log(`Mode: List Comment | AI: ${cfg.ai.provider} | Rate: ${rateStr}`);
+  log(`Mode: List Comment | AI(comment): ${cfg.llm.comment.provider} | AI(router): ${cfg.llm.router.provider} | Rate: ${rateStr}`);
 
   // Main loop - always run list comment mode
   while (true) {

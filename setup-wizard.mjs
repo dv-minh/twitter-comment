@@ -15,6 +15,7 @@ if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
 
 const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
 const ask = (q) => new Promise((res) => rl.question(q, (a) => res(a.trim())));
+const ALLOWED_PROVIDERS = ['deepseek', 'openai', 'openrouter', 'anthropic'];
 
 async function askMultiline(prompt) {
   console.log(prompt);
@@ -75,12 +76,22 @@ function normalizeCookies(raw) {
   return { cookies };
 }
 
+async function askLlmConfig(label, defaults = {}) {
+  console.log(`\n--- ${label} LLM ---`);
+  console.log('Options: deepseek | openai | openrouter | anthropic');
+  let provider = (await ask(`Provider [${defaults.provider || 'deepseek'}]: `)).toLowerCase() || (defaults.provider || 'deepseek');
+  if (!ALLOWED_PROVIDERS.includes(provider)) provider = defaults.provider || 'deepseek';
+  const apiKey = (await ask(`${provider} API key${defaults.apiKey ? ' (Enter to reuse existing)' : ''}: `)) || defaults.apiKey || '';
+  const model = await ask(`Model override (Enter for default${defaults.model ? `, current: ${defaults.model}` : ''}): `);
+  return { provider, apiKey, model };
+}
+
 (async function main() {
   console.log('\n=== Twitter Comment Pack — Setup Wizard ===\n');
   console.log('You will be asked 3 short questions. See guides/ for help.\n');
 
   // Q1: cookies
-  console.log('--- Question 1/4: Twitter cookies ---');
+  console.log('--- Question 1/3: Twitter cookies ---');
   console.log('Use the "Cookie-Editor" extension on x.com → Export → JSON.');
   console.log('You can also paste {"auth_token": "...", "ct0": "..."} format.');
   const rawCookies = await askMultiline('Paste cookies JSON now:');
@@ -108,28 +119,56 @@ function normalizeCookies(raw) {
   // Q3: rate
   console.log('\n--- Question 3/3: Rate limit ---');
   console.log('See guides/04-rate-limits.md. Safe: 10-20/hr. Aggressive: 20-30. >30 risky.');
-  const rateRaw = await ask('Comments per hour [15]: ');
-  const rate = parseInt(rateRaw, 10) || 15;
+  const rateMinRaw = await ask('Comments/hour MIN [8]: ');
+  const rateMaxRaw = await ask('Comments/hour MAX [12]: ');
+  let rateMin = parseInt(rateMinRaw, 10);
+  let rateMax = parseInt(rateMaxRaw, 10);
+  if (!Number.isFinite(rateMin) || rateMin < 1) rateMin = 8;
+  if (!Number.isFinite(rateMax) || rateMax < rateMin) rateMax = Math.max(rateMin, 12);
 
-  // AI provider
-  console.log('\n--- AI Provider ---');
-  console.log('Options: deepseek | openai | openrouter | anthropic');
-  console.log('  deepseek: cheap, fast (default)');
-  console.log('  openai: gpt-4o-mini, expensive');
-  console.log('  openrouter: multi-model routing, good alternative');
-  console.log('  anthropic: claude models');
-  let provider = (await ask('Provider [deepseek]: ')).toLowerCase() || 'deepseek';
-  if (!['deepseek', 'openai', 'openrouter', 'anthropic'].includes(provider)) provider = 'deepseek';
-  const apiKey = await ask(`${provider} API key: `);
-  const model = await ask(`Model override (Enter for default): `);
+  // AI lanes
+  console.log('\n--- AI / LLM Setup ---');
+  console.log('You can use one model for both lanes, or separate models for comment vs router/filter.');
+  console.log('  comment lane: generate final reply');
+  console.log('  router lane: decide should_comment + skill');
+  const useSame = (await ask('Use same provider/key/model for both lanes? (Y/n): ')).toLowerCase() !== 'n';
+  const llmComment = await askLlmConfig('Comment', { provider: 'deepseek' });
+  if (!llmComment.apiKey) {
+    console.error('ERROR: Comment lane API key is required');
+    process.exit(1);
+  }
+  let llmRouter = { ...llmComment };
+  if (!useSame) {
+    llmRouter = await askLlmConfig('Router/Filter', {
+      provider: llmComment.provider,
+      apiKey: llmComment.apiKey,
+      model: llmComment.model,
+    });
+    if (!llmRouter.apiKey) {
+      console.error('ERROR: Router lane API key is required');
+      process.exit(1);
+    }
+  }
 
   const cfg = {
     cookiesFile: 'data/cookies.json',
     listIds,
-    commentsPerHour: rate,
+    commentsPerHour: {
+      min: rateMin,
+      max: rateMax,
+    },
     delayMinMs: 60000,
     delayMaxMs: 240000,
-    ai: { provider, apiKey, model },
+    llm: {
+      comment: { ...llmComment },
+      router: { ...llmRouter },
+    },
+    debug: {
+      reviewLogsEnabled: false,
+      reviewLogsDir: 'data/review-logs',
+      reviewLogsMode: 'full',
+      reviewLogsPreviewChars: 240,
+    },
   };
   fs.writeFileSync(CONFIG_PATH, JSON.stringify(cfg, null, 2));
   console.log(`\nWrote ${CONFIG_PATH}`);

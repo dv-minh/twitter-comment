@@ -43,7 +43,9 @@ Logs: `data/run.log`. Xem real-time: `Get-Content data/run.log -Wait` (PowerShel
 - KHÔNG commit `data/config.json` lên git — đã được gitignore sẵn.
 - Cookies hết hạn (~2-4 tuần) → re-export và `npm run setup` lại (chỉ cần làm lại Q1).
 - **Ngôn ngữ tự động**: bot tự detect ngôn ngữ của tweet và reply bằng ngôn ngữ đó
-- **Hardcoded prompt**: system prompt được viết sẵn, tối ưu cho CT (Crypto Twitter)
+- **Prompt Markdown tách lớp**: prompt nằm trong `prompts/base.md`, `prompts/router.md`, `prompts/skills/*.md`
+- **Router output chuẩn**: `should_comment + skill` (xem `guides/07-router-output-schema.md`)
+- Chi tiết kiến trúc prompt: `guides/06-prompt-architecture.md`
 
 ### Gỡ auto-start
 ```cmd
@@ -85,4 +87,6 @@ Start: `npm start`. Logs: `data/run.log`.
 - `data/config.json` is gitignored — never commit secrets.
 - Cookies expire (~2-4 weeks) → re-export and re-run wizard (Q1 only).
 - **Auto language detection**: bot detects tweet language and replies in the same language
-- **Hardcoded prompt**: system prompt is built-in, optimized for CT (Crypto Twitter)
+- **Layered Markdown prompts**: prompt source files are in `prompts/base.md`, `prompts/router.md`, and `prompts/skills/*.md`
+- **Router schema**: `should_comment + skill` (see `guides/07-router-output-schema.md`)
+- Prompt architecture details: `guides/06-prompt-architecture.md`

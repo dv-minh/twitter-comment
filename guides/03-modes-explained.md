@@ -35,12 +35,17 @@ Example config:
 ## How comments are generated
 
 - **Language detection**: Bot automatically detects the tweet language (English, Vietnamese, Japanese, Korean, Chinese)
-- **System prompt**: Hardcoded to match Crypto Twitter (CT) culture
-  - Natural, conversational tone (not blog post)
-  - Short replies (10-30 words)
-  - Uses CT slang naturally (gm, tbh, ngl, lfg, etc.)
-  - Matches the tweet's energy
-  - No hashtags, no URLs, no emojis (unless tweet needs it)
+- **Prompt architecture**: Split into Markdown files for readability and cleaner control
+  - `prompts/base.md`: global style and safety rules
+  - `prompts/router.md`: filter + skill routing
+  - `prompts/skills/*.md`: behavior per skill
+- **Skill routing**: router returns `should_comment` and `skill` before generation
+- **Comment assembly**: runtime combines base prompt + selected skill prompt
+- **Output behavior**: short CT-native replies, same-language as tweet, no hashtags/URLs
+- See:
+  - `guides/06-prompt-architecture.md`
+  - `guides/07-router-output-schema.md`
+  - `guides/08-skill-prompts.md`
 
 ## Pros & Cons
 

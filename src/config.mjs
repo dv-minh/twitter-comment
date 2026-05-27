@@ -20,7 +20,23 @@ function validate(cfg) {
   if (!cfg.listIds || !Array.isArray(cfg.listIds) || cfg.listIds.length === 0) {
     throw new Error('config.listIds must be a non-empty array');
   }
-  if (!cfg.ai || !cfg.ai.provider || !cfg.ai.apiKey) throw new Error('config.ai.{provider,apiKey} required');
+  const isValidLlm = (x) => x && typeof x.provider === 'string' && typeof x.apiKey === 'string' && x.apiKey.length > 0;
+  if (!cfg.llm) throw new Error('config.llm.{comment,router} is required');
+  if (!isValidLlm(cfg.llm.comment)) throw new Error('config.llm.comment.{provider,apiKey} required');
+  if (!isValidLlm(cfg.llm.router)) throw new Error('config.llm.router.{provider,apiKey} required');
+  // Compatibility: accept misplaced debug block under llm from older/manual configs.
+  if (!cfg.debug && cfg.llm && typeof cfg.llm.debug === 'object') {
+    cfg.debug = { ...cfg.llm.debug };
+  }
+  if (!cfg.debug) {
+    cfg.debug = {};
+  }
+  if (typeof cfg.debug.reviewLogsEnabled !== 'boolean') {
+    cfg.debug.reviewLogsEnabled = false;
+  }
+  if (!cfg.debug.reviewLogsDir || typeof cfg.debug.reviewLogsDir !== 'string') {
+    cfg.debug.reviewLogsDir = 'data/review-logs';
+  }
   if (!cfg.commentsPerHour) {
     cfg.commentsPerHour = 15;
   } else if (typeof cfg.commentsPerHour === 'object') {

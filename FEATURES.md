@@ -21,15 +21,13 @@ Bot crawl các Twitter list bạn chỉ định, comment vào tweet mới chưa 
 
 - **Đa list**: nhập nhiều list ID phân cách bằng dấu phẩy, bot chia đều quota giữa các list theo round-robin.
 - **Auto-detect ngôn ngữ tweet**: phân biệt tiếng Anh / Nhật / Hàn / Trung / Việt qua Unicode, comment đúng ngôn ngữ tweet gốc → tự nhiên, không bị flag spam.
-- **System prompt hardcoded**: bot được tuning riêng cho Crypto Twitter (CT) culture
-  - Tone: natural, conversational (không blog post)
-  - Độ dài: 10–30 words, dưới 140 ký tự
-  - CT slang: gm, tbh, ngl, lfg, bags ready, lfg...
-  - Match tweet energy: bullish → hype, meme → funny, analysis → thoughtful
-  - NO hashtags, NO URLs, NO emojis (trừ khi cần thiết: 😭 💀 👀 🔥)
-  - NO @mentions, NO $tickers không có trong tweet gốc
+- **Prompt kiến trúc Markdown**: prompt được tách rõ thành `prompts/base.md`, `prompts/router.md`, `prompts/skills/*.md`
+  - `base.md`: global style + safety rules
+  - `router.md`: filter + route skill
+  - `skills/*.md`: hành vi theo từng loại tweet crypto
+- **Router output schema**: `should_comment + skill` cho từng tweet
 - **Dedup persistent**: SQLite lưu mọi tweet đã comment → restart bot không bao giờ comment trùng.
-- **AI filtering optional**: nếu bạn bật ENABLE_AI_FILTER = true, bot sẽ filter tweet trước (chỉ comment vào tweet "xứng đáng"), giúp tăng chất lượng engagement.
+- **AI filtering optional**: nếu bật `ENABLE_AI_FILTER = true`, bot sẽ route/filter trước rồi mới generate theo skill.
 
 ---
 
@@ -44,7 +42,7 @@ Bot không bundle AI sẵn. Bạn cung cấp API key của 1 trong 4 provider, t
 | **OpenRouter** | tùy chọn | tùy model | Linh hoạt, routing tự động |
 | **Anthropic** | `claude-haiku-4-5` | ~$1 input / $5 output | Tự nhiên nhất, đắt hơn |
 
-- **Override model bất kỳ lúc nào**: edit `data/config.json` field `ai.model`.
+- **Override model bất kỳ lúc nào**: edit `data/config.json` fields `llm.comment.model` và `llm.router.model`.
 - **Switch provider** chỉ cần chạy lại wizard.
 - **Không vendor lock-in**: prompt được build chuẩn hóa, mọi provider đều dùng cùng template.
 - **Gọi qua HTTP `fetch` trực tiếp**: không phụ thuộc SDK của provider.
@@ -113,7 +111,7 @@ Bot lưu 10 comment gần nhất vào `data/comment-history.json`. Khi generate 
 `data/store.db` lưu:
 
 - **Tweet đã comment**: `tweetId, author, timestamp`
-- **Tweet đã filter**: `tweetId, passed (true/false), timestamp`
+- **Tweet đã filter**: `tweetId, passed (true/false), skill, timestamp`
 - **Session info**: cookies timestamp, quote status
 
 → Restart bot lúc nào cũng safe. Không bao giờ double-comment.
@@ -128,7 +126,7 @@ Bot lưu 10 comment gần nhất vào `data/comment-history.json`. Khi generate 
 | Bot không comment | Check `data/run.log` cho lỗi. Có thể tweets bị filter hoặc list IDs sai |
 | `429 / 403 RATE_LIMITED` | Giảm `commentsPerHour` hoặc đợi 30 phút. Bot tự resume |
 | `401 Unauthorized AI` | Kiểm tra API key, chạy lại `npm run setup` |
-| Comment chất lượng thấp | Prompt đã hardcoded tối ưu. Vấn đề có thể là list content chất lượng thấp hoặc AI model yếu → đổi sang model tốt hơn |
+| Comment chất lượng thấp | Tinh chỉnh `prompts/base.md`, `prompts/router.md`, hoặc skill prompt tương ứng. Ngoài ra có thể do list content kém hoặc model AI yếu |
 
 Gỡ bằng:
 ```cmd
@@ -153,7 +151,7 @@ Bot dùng client HTTP thuần được port từ các bot production đã chạy
 
 ## 8. Storage & dedup
 
-- **SQLite local** (`data/state.db`) qua `better-sqlite3`:
+- **SQLite local** (`data/store.db`) qua `better-sqlite3`:
   - `commented(tweet_id, ts)` — không bao giờ comment trùng tweet
   - `errors(ts, code, msg)` — log lỗi để debug
   - `meta(key, value)` — campaign state, last-seen-tweet

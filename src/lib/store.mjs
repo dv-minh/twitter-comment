@@ -1,6 +1,7 @@
 import Database from 'better-sqlite3';
 import path from 'path';
 import fs from 'fs';
+import { DEFAULT_COMMENT_SKILL, isAllowedCommentSkill } from './ai-prompts.mjs';
 
 let db = null;
 
@@ -20,7 +21,8 @@ export function initStore(dbPath = 'data/store.db') {
     CREATE TABLE IF NOT EXISTS filtered_tweets (
       tweet_id TEXT PRIMARY KEY,
       ts INTEGER NOT NULL,
-      passed INTEGER NOT NULL
+      passed INTEGER NOT NULL,
+      skill TEXT
     );
     CREATE INDEX IF NOT EXISTS idx_filtered_ts ON filtered_tweets(ts);
 
@@ -37,6 +39,13 @@ export function initStore(dbPath = 'data/store.db') {
       v TEXT
     );
   `);
+  try {
+    db.exec('ALTER TABLE filtered_tweets ADD COLUMN skill TEXT');
+  } catch (error) {
+    if (!String(error.message).includes('duplicate column name')) {
+      throw error;
+    }
+  }
   return db;
 }
 
@@ -97,14 +106,20 @@ export function alreadyFiltered(tweetId) {
 
 export function getFilterResult(tweetId) {
   if (!db) return null;
-  const row = db.prepare('SELECT passed FROM filtered_tweets WHERE tweet_id = ?').get(tweetId);
-  return row ? (row.passed === 1) : null;
+  const row = db.prepare('SELECT passed, skill FROM filtered_tweets WHERE tweet_id = ?').get(tweetId);
+  if (!row) return null;
+  if (row.passed !== 1) return { shouldComment: false, skill: '' };
+
+  const skill = isAllowedCommentSkill(row.skill) ? row.skill : DEFAULT_COMMENT_SKILL;
+  return { shouldComment: true, skill };
 }
 
-export function markFiltered(tweetId, passed) {
+export function markFiltered(tweetId, result) {
   if (!db) return;
-  db.prepare('INSERT OR REPLACE INTO filtered_tweets(tweet_id, ts, passed) VALUES(?, ?, ?)')
-    .run(tweetId, Date.now(), passed ? 1 : 0);
+  const shouldComment = result?.shouldComment === true;
+  const skill = shouldComment && isAllowedCommentSkill(result.skill) ? result.skill : '';
+  db.prepare('INSERT OR REPLACE INTO filtered_tweets(tweet_id, ts, passed, skill) VALUES(?, ?, ?, ?)')
+    .run(tweetId, Date.now(), shouldComment ? 1 : 0, skill);
 }
 
 export function clearOldFilteredTweets(hoursOld = 6) {
