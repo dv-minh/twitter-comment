@@ -175,26 +175,153 @@ function twitterCreatedAtToIso(s) {
   return isNaN(d.getTime()) ? new Date().toISOString() : d.toISOString();
 }
 
-function parseTweetEntry(entry) {
-  const tweet = entry?.content?.itemContent?.tweet_results?.result;
-  if (!tweet) return null;
-  const legacy = tweet.legacy || tweet.tweet?.legacy;
-  if (!legacy) return null;
+function unwrapTweetResult(result) {
+  if (!result) return null;
+  if (result.__typename === 'TweetWithVisibilityResults') return result.tweet || null;
+  return result.tweet || result;
+}
+
+function getTweetLegacy(tweet) {
+  return tweet?.legacy || tweet?.tweet?.legacy || null;
+}
+
+function getTweetFullText(tweet, legacy) {
+  return (
+    tweet?.note_tweet?.note_tweet_results?.result?.text ||
+    tweet?.tweet?.note_tweet?.note_tweet_results?.result?.text ||
+    legacy?.full_text ||
+    ''
+  );
+}
+
+function getTweetAuthor(tweet) {
   const userResult =
-    tweet.core?.user_results?.result ||
-    tweet.tweet?.core?.user_results?.result;
-  const author =
+    tweet?.core?.user_results?.result ||
+    tweet?.tweet?.core?.user_results?.result;
+  return (
     userResult?.core?.screen_name ||
     userResult?.legacy?.screen_name ||
-    'unknown';
+    'unknown'
+  );
+}
+
+function uniqueBy(items, keyFn) {
+  const seen = new Set();
+  const out = [];
+  for (const item of items) {
+    const key = keyFn(item);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    out.push(item);
+  }
+  return out;
+}
+
+function parseMediaEntity(media) {
+  if (!media?.media_url_https) return null;
+  return {
+    type: media.type || '',
+    tcoUrl: media.url || '',
+    expandedUrl: media.expanded_url || '',
+    displayUrl: media.display_url || '',
+    mediaUrl: media.media_url_https,
+    width: media.original_info?.width || media.sizes?.large?.w || null,
+    height: media.original_info?.height || media.sizes?.large?.h || null,
+  };
+}
+
+function getTweetMedia(legacy) {
+  const media = [
+    ...(legacy?.extended_entities?.media || []),
+    ...(legacy?.entities?.media || []),
+  ].map(parseMediaEntity).filter(Boolean);
+  return uniqueBy(media, (item) => `${item.mediaUrl}:${item.tcoUrl}`);
+}
+
+function parseUrlEntity(url) {
+  if (!url?.url) return null;
+  return {
+    tcoUrl: url.url,
+    expandedUrl: url.expanded_url || '',
+    displayUrl: url.display_url || '',
+  };
+}
+
+function getTweetLinks(legacy) {
+  const mediaUrls = new Set(getTweetMedia(legacy).map((item) => item.tcoUrl).filter(Boolean));
+  const urls = (legacy?.entities?.urls || []).map(parseUrlEntity).filter(Boolean);
+  return uniqueBy(urls, (item) => item.tcoUrl).filter((item) => !mediaUrls.has(item.tcoUrl));
+}
+
+function parseQuotedTweet(tweet, legacy) {
+  const quotedResult =
+    legacy?.quoted_status_result?.result ||
+    tweet?.quoted_status_result?.result ||
+    tweet?.tweet?.quoted_status_result?.result;
+  const quoted = unwrapTweetResult(quotedResult);
+  const quotedLegacy = getTweetLegacy(quoted);
+  if (!quoted || !quotedLegacy) return null;
+
+  return {
+    id: quoted.rest_id || quoted.tweet?.rest_id || quotedLegacy.id_str || legacy.quoted_status_id_str || '',
+    author: getTweetAuthor(quoted),
+    text: getTweetFullText(quoted, quotedLegacy),
+    createdAt: twitterCreatedAtToIso(quotedLegacy.created_at),
+    lang: quotedLegacy.lang,
+    links: getTweetLinks(quotedLegacy),
+    media: getTweetMedia(quotedLegacy),
+  };
+}
+
+function getTweetResultFromEntry(entry) {
+  return entry?.content?.itemContent?.tweet_results?.result;
+}
+
+function getTweetResultFromModuleItem(item) {
+  return item?.item?.itemContent?.tweet_results?.result;
+}
+
+function parseTweetEntry(entry) {
+  const tweet = unwrapTweetResult(getTweetResultFromEntry(entry));
+  if (!tweet) return null;
+  const legacy = getTweetLegacy(tweet);
+  if (!legacy) return null;
+  const fullText = getTweetFullText(tweet, legacy);
   return {
     id: tweet.rest_id || tweet.tweet?.rest_id || legacy.id_str,
-    fullText: legacy.full_text || '',
-    author,
+    fullText,
+    author: getTweetAuthor(tweet),
     createdAt: twitterCreatedAtToIso(legacy.created_at),
     lang: legacy.lang,
     inReplyToStatusId: legacy.in_reply_to_status_id_str || null,
-    isRetweet: Boolean(legacy.retweeted_status_result) || Boolean(legacy.retweeted_status_id_str),
+    inReplyToScreenName: legacy.in_reply_to_screen_name || null,
+    conversationId: legacy.conversation_id_str || null,
+    isRetweet: Boolean(legacy.retweeted_status_result) || Boolean(legacy.retweeted_status_id_str) || /^RT @/.test(fullText),
+    links: getTweetLinks(legacy),
+    media: getTweetMedia(legacy),
+    quotedTweet: parseQuotedTweet(tweet, legacy),
+  };
+}
+
+function parseTweetModuleItem(item) {
+  const tweet = unwrapTweetResult(getTweetResultFromModuleItem(item));
+  if (!tweet) return null;
+  const legacy = getTweetLegacy(tweet);
+  if (!legacy) return null;
+  const fullText = getTweetFullText(tweet, legacy);
+  return {
+    id: tweet.rest_id || tweet.tweet?.rest_id || legacy.id_str,
+    fullText,
+    author: getTweetAuthor(tweet),
+    createdAt: twitterCreatedAtToIso(legacy.created_at),
+    lang: legacy.lang,
+    inReplyToStatusId: legacy.in_reply_to_status_id_str || null,
+    inReplyToScreenName: legacy.in_reply_to_screen_name || null,
+    conversationId: legacy.conversation_id_str || null,
+    isRetweet: Boolean(legacy.retweeted_status_result) || Boolean(legacy.retweeted_status_id_str) || /^RT @/.test(fullText),
+    links: getTweetLinks(legacy),
+    media: getTweetMedia(legacy),
+    quotedTweet: parseQuotedTweet(tweet, legacy),
   };
 }
 
@@ -258,11 +385,20 @@ export async function searchUserTweets(username, cookiesFilePath, count = 10) {
     if (instr.type === 'TimelineAddEntries' || instr.type === 'TimelinePinEntry') {
       const entries = instr.entries || (instr.entry ? [instr.entry] : []);
       for (const e of entries) {
-        if (e.content?.entryType !== 'TimelineTimelineItem') continue;
-        const t = parseTweetEntry(e);
-        if (t) {
-          if (t.author === 'unknown') t.author = username;
-          out.push(t);
+        if (e.content?.entryType === 'TimelineTimelineItem') {
+          const t = parseTweetEntry(e);
+          if (t) {
+            if (t.author === 'unknown') t.author = username;
+            out.push(t);
+          }
+        } else if (e.content?.entryType === 'TimelineTimelineModule') {
+          for (const item of e.content.items || []) {
+            const t = parseTweetModuleItem(item);
+            if (t) {
+              if (t.author === 'unknown') t.author = username;
+              out.push(t);
+            }
+          }
         }
       }
     }
@@ -289,9 +425,18 @@ export async function fetchListTweets(listId, cookiesFilePath, count = 20) {
   for (const instr of instructions) {
     if (instr.type !== 'TimelineAddEntries') continue;
     for (const e of instr.entries || []) {
-      if (e.content?.entryType !== 'TimelineTimelineItem') continue;
-      const t = parseTweetEntry(e);
-      if (t) {
+      const tweets = [];
+      if (e.content?.entryType === 'TimelineTimelineItem') {
+        const t = parseTweetEntry(e);
+        if (t) tweets.push(t);
+      } else if (e.content?.entryType === 'TimelineTimelineModule') {
+        for (const item of e.content.items || []) {
+          const t = parseTweetModuleItem(item);
+          if (t) tweets.push(t);
+        }
+      }
+
+      for (const t of tweets) {
         const tweetTime = new Date(t.createdAt).getTime();
         // Only include tweets from last 10 hours
         if (tweetTime >= tenHoursAgo) {
@@ -335,6 +480,11 @@ export async function searchTimeline(rawQuery, cookiesFilePath, cursor = null, p
       if (et === 'TimelineTimelineItem') {
         const t = parseTweetEntry(e);
         if (t) tweets.push(t);
+      } else if (et === 'TimelineTimelineModule') {
+        for (const item of e.content.items || []) {
+          const t = parseTweetModuleItem(item);
+          if (t) tweets.push(t);
+        }
       } else if (et === 'TimelineTimelineCursor') {
         if (e.content.cursorType === 'Bottom') nextCursor = e.content.value;
       }

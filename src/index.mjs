@@ -8,7 +8,6 @@ import { loadConfig } from './config.mjs';
 import { initStore } from './lib/store.mjs';
 import { runListMode } from './modes/list-comment.mjs';
 
-const DEBUG = process.argv.includes('--debug');
 const RUN_LOG = 'data/run.log';
 
 function log(msg) {
@@ -20,6 +19,16 @@ function log(msg) {
     fs.appendFileSync(RUN_LOG, line + '\n');
   } catch {}
 }
+
+process.on('unhandledRejection', (reason) => {
+  const message = reason instanceof Error ? `${reason.message}\n${reason.stack || ''}` : String(reason);
+  log(`[fatal] unhandled rejection: ${message}`);
+});
+
+process.on('uncaughtException', (error) => {
+  log(`[fatal] uncaught exception: ${error.message}\n${error.stack || ''}`);
+  process.exit(1);
+});
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 

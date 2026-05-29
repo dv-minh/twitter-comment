@@ -6,7 +6,7 @@ import { writeFile } from 'fs/promises';
 import { fetchListTweets, postTweet } from '../lib/twitter-http.mjs';
 import { detectLanguage } from '../lib/language.mjs';
 import { filterTweetsBatch, generateComment } from '../lib/ai-commenter.mjs';
-import { alreadyCommented, markCommented, tryReserve, alreadyFiltered, getFilterResult, markFiltered, clearOldFilteredTweets } from '../lib/store.mjs';
+import { alreadyCommented, markCommented, tryReserve } from '../lib/store.mjs';
 import { waitForSlot, postSleep, markPostInBatch } from '../lib/rate-limiter.mjs';
 import { createReviewLogger, createTraceId } from '../lib/review-logger.mjs';
 
@@ -19,60 +19,46 @@ async function applyAIFilter(pool, cfg, log, review, traceByTweetId) {
   if (pool.length === 0) return filterResults;
 
   try {
-    // Check which tweets are already filtered
-    const tweetsToFilter = [];
-    const cachedResults = {};
-    
-    for (const t of pool) {
-      if (alreadyFiltered(t.id)) {
-        const result = getFilterResult(t.id);
-        cachedResults[t.id] = result;
-        log(`[list-comment] using cached filter for ${t.id} (${result?.shouldComment ? 'pass' : 'fail'})`);
-        if (review.enabled) {
-          review.writeRouter({
-            trace_id: traceByTweetId[t.id] || '',
-            tweet_id: t.id,
-            should_comment: result?.shouldComment === true,
-            skill: result?.skill || '',
-            source: 'cache',
-            router_prompt_full: '',
-            router_user_input_full: '',
-            router_raw_output: '',
-          });
-        }
-      } else {
-        tweetsToFilter.push(t);
-      }
-    }
-    
-    const cachedCount = Object.keys(cachedResults).length;
-    log(`[list-comment] ${cachedCount} tweets already filtered, ${tweetsToFilter.length} need filtering`);
-    
-    // Batch filter only new tweets
-    let newResults = {};
-    if (tweetsToFilter.length > 0) {
-      newResults = await filterTweetsBatch({
-        tweets: tweetsToFilter,
-        ai: cfg.llm.router,
-        review: {
-          enabled: review.enabled,
-          traceByTweetId,
-          writeRouter: review.writeRouter,
-        },
-      });
-      
-      // Mark each new tweet as filtered
-      for (const tweetId of Object.keys(newResults)) {
-        markFiltered(tweetId, newResults[tweetId]);
-      }
-    }
-    
-    // Merge cached + new results
-    const mergedResults = { ...cachedResults, ...newResults };
+    log(`[list-comment] filtering ${pool.length} tweets with router`);
+    const mergedResults = await filterTweetsBatch({
+      tweets: pool,
+      ai: cfg.llm.router,
+      review: {
+        enabled: review.enabled,
+        traceByTweetId,
+        writeRouter: review.writeRouter,
+      },
+    });
     
     const passCount = Object.values(mergedResults).filter((v) => v?.shouldComment === true).length;
     const skipCount = pool.length - passCount;
     log(`[list-comment] batch filter: ${pool.length} → ${passCount} tweets (${skipCount} skipped)`);
+
+    try {
+      const routerTweetsLog = pool.map(t => ({
+        id: t.id,
+        author: t.author,
+        createdAt: t.createdAt,
+        text: t.fullText,
+        links: t.links || [],
+        media: t.media || [],
+        quotedTweet: t.quotedTweet ? {
+          id: t.quotedTweet.id,
+          author: t.quotedTweet.author,
+          text: t.quotedTweet.text,
+          createdAt: t.quotedTweet.createdAt,
+          links: t.quotedTweet.links || [],
+          media: t.quotedTweet.media || [],
+        } : null,
+        shouldComment: mergedResults[t.id]?.shouldComment === true,
+        skill: mergedResults[t.id]?.skill || '',
+      }));
+      await writeFile('data/fetch-tweet-eval.txt', JSON.stringify(routerTweetsLog, null, 2));
+      await writeFile('data/fetch-tweet-router.txt', JSON.stringify(routerTweetsLog, null, 2));
+      log(`[list-comment] wrote ${routerTweetsLog.length} router decisions to data/fetch-tweet-eval.txt`);
+    } catch (e) {
+      log(`[list-comment] failed to write fetch-tweet-router.txt: ${e.message}`);
+    }
 
     // Write filtered tweets to file
     try {
@@ -83,8 +69,18 @@ async function applyAIFilter(pool, cfg, log, review, traceByTweetId) {
           author: t.author,
           createdAt: t.createdAt,
           text: t.fullText,
+          links: t.links || [],
+          media: t.media || [],
+          quotedTweet: t.quotedTweet ? {
+            id: t.quotedTweet.id,
+            author: t.quotedTweet.author,
+            text: t.quotedTweet.text,
+            createdAt: t.quotedTweet.createdAt,
+            links: t.quotedTweet.links || [],
+            media: t.quotedTweet.media || [],
+          } : null,
           skill: mergedResults[t.id]?.skill || '',
-        }));
+      }));
       await writeFile('data/fetch-tweet-filter.txt', JSON.stringify(filteredTweetsLog, null, 2));
       log(`[list-comment] wrote ${filteredTweetsLog.length} filtered tweets to data/fetch-tweet-filter.txt`);
     } catch (e) {
@@ -112,23 +108,35 @@ export async function runListMode(cfg, log) {
     return;
   }
 
-  // Clean up old filter data (> 6 hours old)
-  const deletedCount = clearOldFilteredTweets(6);
-  if (deletedCount > 0) {
-    log(`[list-comment] cleaned up ${deletedCount} old filtered tweets from DB`);
-  }
-
   const review = createReviewLogger(cfg, log);
   const pool = [];
+  const skippedBeforeRouter = [];
   const seen = new Set();
   for (const id of listIds) {
     try {
       const tweets = await fetchListTweets(String(id).trim(), cfg.cookiesFile, 30);
       for (const t of tweets) {
-        if (!t.id || !t.fullText || t.fullText.length < 10) continue;
-        if (t.isRetweet) continue;
-        if (seen.has(t.id)) continue;
-        if (alreadyCommented(t.id)) continue;
+        if (t.isRetweet) {
+          skippedBeforeRouter.push({ ...t, skipReason: 'retweet' });
+          continue;
+        }
+        if (t.inReplyToStatusId) {
+          skippedBeforeRouter.push({ ...t, skipReason: 'reply' });
+          continue;
+        }
+        const semanticText = `${t.fullText || ''}\n${t.quotedTweet?.text || ''}`.trim();
+        if (!t.id || semanticText.length < 10) {
+          skippedBeforeRouter.push({ ...t, skipReason: 'too_short' });
+          continue;
+        }
+        if (seen.has(t.id)) {
+          skippedBeforeRouter.push({ ...t, skipReason: 'duplicate' });
+          continue;
+        }
+        if (alreadyCommented(t.id)) {
+          skippedBeforeRouter.push({ ...t, skipReason: 'already_commented' });
+          continue;
+        }
         seen.add(t.id);
         pool.push(t);
       }
@@ -139,6 +147,9 @@ export async function runListMode(cfg, log) {
         throw e;
       }
     }
+  }
+  if (skippedBeforeRouter.length > 0) {
+    log(`[list-comment] skipped ${skippedBeforeRouter.length} tweets before router`);
   }
 
   pool.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
@@ -154,11 +165,51 @@ export async function runListMode(cfg, log) {
       author: t.author,
       createdAt: t.createdAt,
       text: t.fullText,
+      inReplyToStatusId: t.inReplyToStatusId || null,
+      inReplyToScreenName: t.inReplyToScreenName || null,
+      conversationId: t.conversationId || null,
+      links: t.links || [],
+      media: t.media || [],
+      quotedTweet: t.quotedTweet ? {
+        id: t.quotedTweet.id,
+        author: t.quotedTweet.author,
+        text: t.quotedTweet.text,
+        createdAt: t.quotedTweet.createdAt,
+        links: t.quotedTweet.links || [],
+        media: t.quotedTweet.media || [],
+      } : null,
     }));
     await writeFile('data/fetch-tweet.txt', JSON.stringify(fetchedTweetsLog, null, 2));
     log(`[list-comment] wrote ${pool.length} fetched tweets to data/fetch-tweet.txt`);
   } catch (e) {
     log(`[list-comment] failed to write fetch-tweet.txt: ${e.message}`);
+  }
+
+  try {
+    const skippedTweetsLog = skippedBeforeRouter.map(t => ({
+      id: t.id,
+      author: t.author,
+      createdAt: t.createdAt,
+      text: t.fullText,
+      skipReason: t.skipReason,
+      inReplyToStatusId: t.inReplyToStatusId || null,
+      inReplyToScreenName: t.inReplyToScreenName || null,
+      conversationId: t.conversationId || null,
+      links: t.links || [],
+      media: t.media || [],
+      quotedTweet: t.quotedTweet ? {
+        id: t.quotedTweet.id,
+        author: t.quotedTweet.author,
+        text: t.quotedTweet.text,
+        createdAt: t.quotedTweet.createdAt,
+        links: t.quotedTweet.links || [],
+        media: t.quotedTweet.media || [],
+      } : null,
+    }));
+    await writeFile('data/fetch-tweet-skip.txt', JSON.stringify(skippedTweetsLog, null, 2));
+    log(`[list-comment] wrote ${skippedTweetsLog.length} pre-router skipped tweets to data/fetch-tweet-skip.txt`);
+  } catch (e) {
+    log(`[list-comment] failed to write fetch-tweet-skip.txt: ${e.message}`);
   }
 
   // Apply AI filter (always enabled)
@@ -176,7 +227,7 @@ export async function runListMode(cfg, log) {
   for (const t of pool) {
     const route = filterResults[t.id];
     const traceId = traceByTweetId[t.id] || createTraceId(t.id);
-    const lang = detectLanguage(t.fullText);
+    const lang = detectLanguage(`${t.fullText || ''}\n${t.quotedTweet?.text || ''}`);
     if (review.enabled) {
       review.writeInput({
         trace_id: traceId,
@@ -184,6 +235,12 @@ export async function runListMode(cfg, log) {
         author: t.author,
         created_at: t.createdAt,
         tweet_text: t.fullText,
+        links: t.links || [],
+        media: t.media || [],
+        quote_author: t.quotedTweet?.author || '',
+        quote_text: t.quotedTweet?.text || '',
+        quote_links: t.quotedTweet?.links || [],
+        quote_media: t.quotedTweet?.media || [],
         detected_lang: lang,
       });
     }
@@ -213,6 +270,9 @@ export async function runListMode(cfg, log) {
     try {
       comment = await generateComment({
         tweetText: t.fullText,
+        links: t.links || [],
+        media: t.media || [],
+        quotedTweet: t.quotedTweet,
         lang,
         ai: cfg.llm.comment,
         skill: route.skill,
